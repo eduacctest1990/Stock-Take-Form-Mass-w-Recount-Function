@@ -82,41 +82,10 @@
                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Physical Balance</th>
                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Difference</th>
                             <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="results-table-body" class="bg-white divide-y divide-gray-200">
-                        </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="missing-in-physical-container" class="mt-8 hidden">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Items Only in System (Missing in Physical)</h2>
-            <div class="overflow-x-auto rounded-xl shadow-md border border-gray-200">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-100">
-                        <tr>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item ID</th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">System Balance</th>
-                        </tr>
-                    </thead>
-                    <tbody id="missing-table-body" class="bg-white divide-y divide-gray-200">
-                        </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="new-in-physical-container" class="mt-8 hidden">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Items Only in Physical (New)</h2>
-            <div class="overflow-x-auto rounded-xl shadow-md border border-gray-200">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-100">
-                        <tr>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item ID</th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Physical Balance</th>
-                        </tr>
-                    </thead>
-                    <tbody id="new-table-body" class="bg-white divide-y divide-gray-200">
                         </tbody>
                 </table>
             </div>
@@ -135,18 +104,13 @@
             const loadingDiv = document.getElementById('loading');
             const resultsContainer = document.getElementById('results-container');
             const resultsTableBody = document.getElementById('results-table-body');
-            const missingContainer = document.getElementById('missing-in-physical-container');
-            const missingTableBody = document.getElementById('missing-table-body');
-            const newContainer = document.getElementById('new-in-physical-container');
-            const newTableBody = document.getElementById('new-table-body');
             const messageBox = document.getElementById('message-box');
             const summaryMessage = document.getElementById('summary-message');
 
-            // Global variables to store comparison results for export
-            let allResults = [];
-            let differencesOnly = [];
-            let missingInPhysical = [];
-            let newInPhysical = [];
+            // Global variable to store comparison results for export
+            let comparisonResults = [];
+            let systemDataMap = new Map();
+            let physicalDataMap = new Map();
 
             /**
              * Shows a message to the user in a styled box.
@@ -177,6 +141,8 @@
             const findColumnKey = (data, keywords, fallbackKey) => {
                 if (data.length === 0) return null;
                 const headers = Object.keys(data[0]);
+
+                // First, try to find a header that contains one of the keywords
                 for (const header of headers) {
                     const normalizedHeader = header.toLowerCase().trim();
                     for (const keyword of keywords) {
@@ -185,9 +151,12 @@
                         }
                     }
                 }
+
+                // Second, if no keywords found, fall back to the generic column name
                 if (headers.includes(fallbackKey)) {
                     return fallbackKey;
                 }
+                
                 return null;
             };
 
@@ -217,90 +186,172 @@
             };
 
             /**
-             * Exports the comparison results to an Excel file, with color-coding and multiple sheets.
+             * Exports the comparison results to an Excel file, with color-coding.
+             * @param {Array<object>} dataToExport The data array to export.
+             * @param {string} filename The filename for the exported file.
              */
-            const exportToExcel = (resultsArray, missingArray, newArray, filename) => {
-                if (resultsArray.length === 0 && missingArray.length === 0 && newArray.length === 0) {
+            const exportToExcel = (dataToExport, filename) => {
+                if (dataToExport.length === 0) {
                     showMessage('No data to export.', 'warning');
                     return;
                 }
 
-                const workbook = XLSX.utils.book_new();
-
-                // 1. Comparison Results Sheet
-                const mainExportData = resultsArray.map(item => ({
+                const exportData = dataToExport.map(item => ({
                     'Item ID': item.itemId,
                     'System Balance': item.systemQty,
                     'Physical Balance': item.physicalQty,
                     'Difference': item.difference > 0 ? `+${item.difference}` : item.difference,
                     'Status': item.status
                 }));
-                const mainWorksheet = XLSX.utils.json_to_sheet(mainExportData);
+                
+                const worksheet = XLSX.utils.json_to_sheet(exportData);
+
                 const redStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFFFE2E2' } } };
                 const greenStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFD1FAE5' } } };
-                const range = XLSX.utils.decode_range(mainWorksheet['!ref']);
+                
+                const range = XLSX.utils.decode_range(worksheet['!ref']);
+                
                 for (let R = range.s.r + 1; R <= range.e.r; ++R) {
                     const statusCellAddress = XLSX.utils.encode_cell({ r: R, c: 4 });
-                    const statusCell = mainWorksheet[statusCellAddress];
+                    const statusCell = worksheet[statusCellAddress];
+                    
                     if (statusCell) {
                         let styleToApply = null;
-                        if (statusCell.v !== 'Good') {
+                        if (statusCell.v === 'Extra' || statusCell.v === 'Shortage') {
                             styleToApply = redStyle;
                         } else if (statusCell.v === 'Good') {
                             styleToApply = greenStyle;
                         }
+                        
                         if (styleToApply) {
                             for (let C = range.s.c; C <= range.e.c; ++C) {
                                 const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-                                if (mainWorksheet[cellAddress]) {
-                                    mainWorksheet[cellAddress].s = styleToApply;
+                                if (worksheet[cellAddress]) {
+                                    worksheet[cellAddress].s = styleToApply;
                                 }
                             }
                         }
                     }
                 }
-                XLSX.utils.book_append_sheet(workbook, mainWorksheet, 'Comparison Results');
 
-                // 2. Missing in Physical Sheet
-                const missingExportData = missingArray.map(item => ({
-                    'Item ID': item.itemId,
-                    'System Balance': item.systemQty
-                }));
-                const missingWorksheet = XLSX.utils.json_to_sheet(missingExportData);
-                XLSX.utils.book_append_sheet(workbook, missingWorksheet, 'Missing in Physical');
-
-                // 3. New in Physical Sheet
-                const newExportData = newArray.map(item => ({
-                    'Item ID': item.itemId,
-                    'Physical Balance': item.physicalQty
-                }));
-                const newWorksheet = XLSX.utils.json_to_sheet(newExportData);
-                XLSX.utils.book_append_sheet(workbook, newWorksheet, 'New in Physical');
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Comparison Results');
                 
-                // Write and download the file
                 XLSX.writeFile(workbook, filename, { cellStyles: true });
+            };
+
+            const displayResults = () => {
+                resultsTableBody.innerHTML = '';
+                let goodItemsCount = 0;
+                let tableRowsHtml = '';
+
+                comparisonResults.forEach(item => {
+                    let statusClass = '';
+                    let actionHtml = '';
+
+                    if (item.status === 'Good') {
+                        statusClass = 'good';
+                        goodItemsCount++;
+                    } else if (item.status === 'Extra' || item.status === 'Shortage') {
+                        statusClass = 'extra';
+                        actionHtml = `<button data-item-id="${item.itemId}" class="reverify-btn bg-blue-500 hover:bg-blue-600 text-white font-bold py-1 px-3 rounded text-xs">Re-verify</button>`;
+                    }
+
+                    tableRowsHtml += `
+                        <tr class="${statusClass}">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.itemId}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.systemQty}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <input type="number" value="${item.physicalQty}" data-item-id="${item.itemId}" class="physical-qty-input w-24 p-1 border rounded ${statusClass === 'good' ? 'bg-gray-100' : 'bg-white'}" ${statusClass === 'good' ? 'disabled' : ''}>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.difference > 0 ? '+' : ''}${item.difference}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold status-cell">${item.status}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                ${actionHtml}
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                resultsTableBody.innerHTML = tableRowsHtml;
+                summaryMessage.textContent = `(${goodItemsCount} / ${comparisonResults.length} item ID OK)`;
+                resultsContainer.classList.remove('hidden');
+                exportBtn.classList.remove('hidden');
+                exportDiffBtn.classList.remove('hidden');
+
+                // Attach event listeners to the new re-verify buttons
+                document.querySelectorAll('.reverify-btn').forEach(button => {
+                    button.addEventListener('click', handleReverify);
+                });
+            };
+
+            const handleReverify = (event) => {
+                const button = event.target;
+                const itemId = button.dataset.itemId;
+                const row = button.closest('tr');
+                const newPhysicalQty = parseInt(row.querySelector('.physical-qty-input').value, 10);
+                
+                if (isNaN(newPhysicalQty)) {
+                    showMessage('Please enter a valid number for the quantity.', 'warning');
+                    return;
+                }
+
+                // Find the item in our global results array and update its quantity
+                const itemIndex = comparisonResults.findIndex(item => item.itemId == itemId);
+                if (itemIndex !== -1) {
+                    const systemQty = comparisonResults[itemIndex].systemQty;
+                    const newDifference = newPhysicalQty - systemQty;
+                    let newStatus = 'Good';
+
+                    if (newDifference > 0) {
+                        newStatus = 'Extra';
+                    } else if (newDifference < 0) {
+                        newStatus = 'Shortage';
+                    }
+
+                    // Update the item in the global array
+                    comparisonResults[itemIndex].physicalQty = newPhysicalQty;
+                    comparisonResults[itemIndex].difference = newDifference;
+                    comparisonResults[itemIndex].status = newStatus;
+                    
+                    // Update the row in the DOM
+                    const statusCell = row.querySelector('.status-cell');
+                    const differenceCell = row.children[3]; // Fourth child is the difference column
+                    const physicalInput = row.querySelector('.physical-qty-input');
+                    const actionCell = row.children[5]; // Last child is the action column
+                    
+                    statusCell.textContent = newStatus;
+                    differenceCell.textContent = (newDifference > 0 ? '+' : '') + newDifference;
+                    
+                    if (newStatus === 'Good') {
+                        row.className = 'good';
+                        physicalInput.disabled = true;
+                        physicalInput.className = 'physical-qty-input w-24 p-1 border rounded bg-gray-100';
+                        actionCell.innerHTML = ''; // Remove the button
+                    } else {
+                        row.className = 'extra'; // Use a generic class for differences
+                    }
+
+                    // Update the summary message
+                    let goodCount = comparisonResults.filter(item => item.status === 'Good').length;
+                    summaryMessage.textContent = `(${goodCount} / ${comparisonResults.length} item ID OK)`;
+                }
             };
 
 
             // Event listener for the compare button
             compareBtn.addEventListener('click', async () => {
-                // Reset UI
+                // Hide previous results and messages, show loading spinner
                 resultsContainer.classList.add('hidden');
-                missingContainer.classList.add('hidden');
-                newContainer.classList.add('hidden');
                 messageBox.classList.add('hidden');
                 loadingDiv.classList.remove('hidden');
                 exportBtn.classList.add('hidden');
                 exportDiffBtn.classList.add('hidden');
                 resultsTableBody.innerHTML = '';
-                missingTableBody.innerHTML = '';
-                newTableBody.innerHTML = '';
                 summaryMessage.textContent = '';
-                allResults = [];
-                differencesOnly = [];
-                missingInPhysical = [];
-                newInPhysical = [];
+                comparisonResults = [];
 
+                // Get the selected files
                 const systemFile = systemFileInp.files[0];
                 const physicalFiles = physicalFileInp.files;
 
@@ -311,10 +362,14 @@
                 }
 
                 try {
+                    // Read system file
                     const systemData = await readExcelFile(systemFile);
+
+                    // Read all physical files concurrently
                     const physicalDataPromises = Array.from(physicalFiles).map(file => readExcelFile(file));
                     const allPhysicalData = await Promise.all(physicalDataPromises);
 
+                    // Dynamically find the correct column keys with fallbacks
                     const systemItemIdKey = findColumnKey(systemData, ['item', 'id', 'sku'], 'A');
                     const systemQuantityKey = findColumnKey(systemData, ['quantity', 'qty'], 'B');
                     const physicalItemIdKey = findColumnKey(allPhysicalData[0], ['item', 'id', 'sku'], 'A');
@@ -326,125 +381,61 @@
                         return;
                     }
 
-                    // --- Step 1: Consolidate data ---
-                    const systemMap = new Map();
+                    // --- Step 1a: Consolidate System Balance data ---
+                    systemDataMap = new Map();
                     systemData.forEach(row => {
                         const itemId = row[systemItemIdKey];
                         const quantity = parseInt(row[systemQuantityKey] || 0, 10);
                         if (itemId !== undefined && !isNaN(quantity)) {
-                            systemMap.set(itemId, (systemMap.get(itemId) || 0) + quantity);
+                            const currentQty = systemDataMap.get(itemId) || 0;
+                            systemDataMap.set(itemId, currentQty + quantity);
                         }
                     });
 
-                    const physicalMap = new Map();
+                    // --- Step 1b: Consolidate Physical Balance data from all files ---
+                    physicalDataMap = new Map();
                     allPhysicalData.forEach(fileData => {
                         fileData.forEach(row => {
                             const itemId = row[physicalItemIdKey];
                             const quantity = parseInt(row[physicalQuantityKey] || 0, 10);
                             if (itemId !== undefined && !isNaN(quantity)) {
-                                physicalMap.set(itemId, (physicalMap.get(itemId) || 0) + quantity);
+                                const currentQty = physicalDataMap.get(itemId) || 0;
+                                physicalDataMap.set(itemId, currentQty + quantity);
                             }
                         });
                     });
 
                     // --- Step 2: Compare and generate results ---
-                    let goodCount = 0;
-                    let shortageCount = 0;
-                    let extraCount = 0;
-                    let missingCount = 0;
-                    let newCount = 0;
-                    
-                    // a. Items that exist in both, or are only in the system
-                    systemMap.forEach((systemQty, itemId) => {
-                        const physicalQty = physicalMap.get(itemId);
-                        const difference = physicalQty !== undefined ? physicalQty - systemQty : -systemQty;
-                        let status;
-                        if (physicalQty === undefined) {
-                            status = 'Missing in Physical';
-                            missingInPhysical.push({ itemId, systemQty });
-                            missingCount++;
-                        } else if (systemQty === physicalQty) {
-                            status = 'Good';
-                            goodCount++;
-                        } else if (systemQty > physicalQty) {
+                    comparisonResults = [];
+                    // Iterate over the consolidated system map
+                    systemDataMap.forEach((systemQty, itemId) => {
+                        const physicalQty = physicalDataMap.get(itemId) || 0;
+                        let status = 'Good';
+
+                        if (systemQty > physicalQty) {
                             status = 'Shortage';
-                            shortageCount++;
-                            differencesOnly.push({ itemId, systemQty, physicalQty, difference, status });
-                        } else { // systemQty < physicalQty
+                        } else if (systemQty < physicalQty) {
                             status = 'Extra';
-                            extraCount++;
-                            differencesOnly.push({ itemId, systemQty, physicalQty, difference, status });
                         }
-                        allResults.push({ itemId, systemQty, physicalQty: physicalQty !== undefined ? physicalQty : '-', difference, status });
-                    });
+                        
+                        const difference = physicalQty - systemQty;
 
-                    // b. Items that are only in physical files
-                    physicalMap.forEach((physicalQty, itemId) => {
-                        if (!systemMap.has(itemId)) {
-                            const difference = physicalQty;
-                            const status = 'New in Physical';
-                            newInPhysical.push({ itemId, physicalQty });
-                            newCount++;
-                            allResults.push({ itemId, systemQty: '-', physicalQty, difference, status });
-                        }
-                    });
-
-                    // --- Step 3: Display results and summary ---
-                    if (allResults.length > 0) {
-                        // Main table
-                        let tableRowsHtml = '';
-                        allResults.sort((a, b) => a.itemId.localeCompare(b.itemId)).forEach(item => {
-                            let statusClass = item.status.toLowerCase().replace(/\s/g, '-');
-                            tableRowsHtml += `
-                                <tr class="${statusClass}">
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.itemId}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.systemQty}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.physicalQty}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.difference !== '-' ? (item.difference > 0 ? '+' : '') + item.difference : '-'}</td>
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold">${item.status}</td>
-                                </tr>
-                            `;
+                        comparisonResults.push({
+                            itemId,
+                            systemQty,
+                            physicalQty,
+                            difference,
+                            status
                         });
-                        resultsTableBody.innerHTML = tableRowsHtml;
-                        resultsContainer.classList.remove('hidden');
+                    });
 
-                        // Missing items table
-                        if (missingInPhysical.length > 0) {
-                            let missingRowsHtml = '';
-                            missingInPhysical.sort((a, b) => a.itemId.localeCompare(b.itemId)).forEach(item => {
-                                missingRowsHtml += `
-                                    <tr class="missing">
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.itemId}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.systemQty}</td>
-                                    </tr>
-                                `;
-                            });
-                            missingTableBody.innerHTML = missingRowsHtml;
-                            missingContainer.classList.remove('hidden');
-                        }
-
-                        // New items table
-                        if (newInPhysical.length > 0) {
-                            let newRowsHtml = '';
-                            newInPhysical.sort((a, b) => a.itemId.localeCompare(b.itemId)).forEach(item => {
-                                newRowsHtml += `
-                                    <tr class="new">
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.itemId}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.physicalQty}</td>
-                                    </tr>
-                                `;
-                            });
-                            newTableBody.innerHTML = newRowsHtml;
-                            newContainer.classList.remove('hidden');
-                        }
-                        
-                        summaryMessage.textContent = `Total items: ${allResults.length} | Good: ${goodCount} | Shortage: ${shortageCount} | Extra: ${extraCount} | Missing: ${missingCount} | New: ${newCount}`;
-                        
-                        exportBtn.classList.remove('hidden');
-                        exportDiffBtn.classList.remove('hidden');
+                    // --- Step 3: Display results and summary in the table ---
+                    if (comparisonResults.length > 0) {
+                        displayResults();
                     } else {
                         showMessage('No valid data found in the files.', 'warning');
                     }
+
                 } catch (error) {
                     console.error('Error:', error);
                     showMessage(`An error occurred: ${error.message}`, 'error');
@@ -456,17 +447,24 @@
             // Event listener for the "Export All Results" button
             exportBtn.addEventListener('click', () => {
                 const today = new Date();
-                const dateString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const dateString = `${year}-${month}-${day}`;
                 const fileName = `Stock Take_AllResults_${dateString}.xlsx`;
-                exportToExcel(allResults, missingInPhysical, newInPhysical, fileName);
+                exportToExcel(comparisonResults, fileName);
             });
 
             // Event listener for the "Export Differences Only" button
             exportDiffBtn.addEventListener('click', () => {
+                const differencesOnly = comparisonResults.filter(item => item.status !== 'Good');
                 const today = new Date();
-                const dateString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const dateString = `${year}-${month}-${day}`;
                 const fileName = `Stock Take_DifferencesOnly_${dateString}.xlsx`;
-                exportToExcel(differencesOnly, missingInPhysical, newInPhysical, fileName);
+                exportToExcel(differencesOnly, fileName);
             });
         });
     </script>
