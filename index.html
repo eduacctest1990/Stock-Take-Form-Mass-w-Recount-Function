@@ -131,6 +131,21 @@
             let systemDataMap = new Map();
             let physicalDataMap = new Map();
 
+            // Flag to track if results have been generated
+            let resultsGenerated = false;
+
+            // --- NEW FUNCTIONALITY: BROWSER EXIT WARNING ---
+            window.addEventListener('beforeunload', (event) => {
+                if (resultsGenerated) {
+                    // Modern browsers ignore the custom message and show a generic one
+                    event.preventDefault();
+                    // Chrome requires this to be set for the prompt to show
+                    event.returnValue = ''; 
+                    const message = "You have unsaved results. Are you sure you want to exit?";
+                    return message;
+                }
+            });
+
             /**
              * Shows a message to the user in a styled box.
              * @param {string} message The message to display.
@@ -332,6 +347,7 @@
                 resultsTableBody.innerHTML = '';
                 summaryMessage.textContent = '';
                 comparisonResults = [];
+                resultsGenerated = false;
 
                 const systemFile = systemFileInp.files[0];
                 const physicalFiles = physicalFileInp.files;
@@ -405,6 +421,7 @@
                     // Display results and show re-verification section
                     if (comparisonResults.length > 0) {
                         displayResults();
+                        resultsGenerated = true; // Set the flag
                         // Only show the re-verify section if there are differences
                         const hasDifferences = comparisonResults.some(item => item.status !== 'Good');
                         if (hasDifferences) {
