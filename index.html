@@ -395,11 +395,15 @@
                         });
                     });
 
-                    // Compare and generate results with new data structure
+                    // --- START OF FIXED COMPARISON LOGIC ---
+                    const allItemIds = new Set([...systemDataMap.keys(), ...physicalDataMap.keys()]);
+
                     comparisonResults = [];
-                    systemDataMap.forEach((systemQty, itemId) => {
+                    allItemIds.forEach(itemId => {
+                        const systemQty = systemDataMap.get(itemId) || 0;
                         const initialPhysicalQty = physicalDataMap.get(itemId) || 0;
                         const finalPhysicalQty = initialPhysicalQty;
+
                         let status = 'Good';
                         if (systemQty > finalPhysicalQty) {
                             status = 'Shortage';
@@ -417,6 +421,7 @@
                             recountHistory: []
                         });
                     });
+                    // --- END OF FIXED COMPARISON LOGIC ---
 
                     // Display results and show re-verification section
                     if (comparisonResults.length > 0) {
