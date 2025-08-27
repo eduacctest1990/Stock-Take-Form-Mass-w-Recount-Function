@@ -200,7 +200,7 @@
             };
 
             /**
-             * Exports the comparison results to an Excel file, with color-coding.
+             * Exports the comparison results to an Excel file, with color-coding and recount history.
              * @param {Array<object>} dataToExport The data array to export.
              * @param {string} filename The filename for the exported file.
              */
@@ -210,35 +210,53 @@
                     return;
                 }
 
-                const exportData = dataToExport.map(item => ({
-                    'Item ID': item.itemId,
-                    'System Balance': item.systemQty,
-                    'Physical Balance': item.physicalQty,
-                    'Difference': item.difference > 0 ? `+${item.difference}` : item.difference,
-                    'Status': item.status,
-                    'Re-verified': item.reverified ? 'Yes' : 'No' // Added new column
-                }));
+                let maxRecounts = 0;
+                dataToExport.forEach(item => {
+                    if (item.recountHistory && item.recountHistory.length > maxRecounts) {
+                        maxRecounts = item.recountHistory.length;
+                    }
+                });
+
+                const exportData = dataToExport.map(item => {
+                    const row = {
+                        'Item ID': item.itemId,
+                        'System Balance': item.systemQty,
+                        'Initial Physical Balance': item.initialPhysicalQty,
+                        'Final Physical Balance': item.finalPhysicalQty,
+                        'Difference': item.difference > 0 ? `+${item.difference}` : item.difference,
+                        'Status': item.status
+                    };
+                    
+                    // Add dynamic recount columns
+                    for (let i = 0; i < maxRecounts; i++) {
+                        const recountQty = item.recountHistory[i] || '';
+                        row[`Recount ${i + 1} Quantity`] = recountQty;
+                    }
+                    return row;
+                });
                 
                 const worksheet = XLSX.utils.json_to_sheet(exportData);
-                
-                // Set column widths
+
+                // Set column widths dynamically
                 const wscols = [
                     {wch: 15}, // Item ID
                     {wch: 15}, // System Balance
-                    {wch: 15}, // Physical Balance
+                    {wch: 25}, // Initial Physical Balance
+                    ...Array(maxRecounts).fill({wch: 20}), // Recount Qty columns
+                    {wch: 25}, // Final Physical Balance
                     {wch: 15}, // Difference
-                    {wch: 15}, // Status
-                    {wch: 15}  // Re-verified
+                    {wch: 15}  // Status
                 ];
                 worksheet['!cols'] = wscols;
 
                 const redStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFFFE2E2' } } };
                 const greenStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFD1FAE5' } } };
                 
+                const statusColIndex = 4 + maxRecounts; // Status column position changes
                 const range = XLSX.utils.decode_range(worksheet['!ref']);
                 
                 for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-                    const statusCellAddress = XLSX.utils.encode_cell({ r: R, c: 4 });
+                    const statusCellAddress = XLSX.utils.encode_cell({ r: R, c: statusColIndex });
                     const statusCell = worksheet[statusCellAddress];
                     
                     if (statusCell) {
@@ -250,7 +268,7 @@
                         }
                         
                         if (styleToApply) {
-                            for (let C = range.s.c; C <= range.e.c; ++C) {
+                            for (let C = range.s.c; C <= range.e.e; ++C) {
                                 const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
                                 if (worksheet[cellAddress]) {
                                     worksheet[cellAddress].s = styleToApply;
@@ -288,7 +306,7 @@
                         <tr class="${statusClass}">
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.itemId}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.systemQty}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.physicalQty}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.finalPhysicalQty}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.difference > 0 ? '+' : ''}${item.difference}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold">${item.status}</td>
                         </tr>
@@ -361,24 +379,26 @@
                         });
                     });
 
-                    // Compare and generate results
+                    // Compare and generate results with new data structure
                     comparisonResults = [];
                     systemDataMap.forEach((systemQty, itemId) => {
-                        const physicalQty = physicalDataMap.get(itemId) || 0;
+                        const initialPhysicalQty = physicalDataMap.get(itemId) || 0;
+                        const finalPhysicalQty = initialPhysicalQty;
                         let status = 'Good';
-                        if (systemQty > physicalQty) {
+                        if (systemQty > finalPhysicalQty) {
                             status = 'Shortage';
-                        } else if (systemQty < physicalQty) {
+                        } else if (systemQty < finalPhysicalQty) {
                             status = 'Extra';
                         }
-                        const difference = physicalQty - systemQty;
+                        const difference = finalPhysicalQty - systemQty;
                         comparisonResults.push({ 
                             itemId, 
                             systemQty, 
-                            physicalQty, 
+                            initialPhysicalQty,
+                            finalPhysicalQty,
                             difference, 
                             status,
-                            reverified: false // Initialize the new flag
+                            recountHistory: []
                         });
                     });
 
@@ -440,10 +460,12 @@
                         if (itemId !== undefined && !isNaN(newPhysicalQty)) {
                             const itemToUpdate = comparisonResults.find(item => item.itemId === itemId);
                             if (itemToUpdate) {
-                                itemToUpdate.physicalQty = newPhysicalQty;
+                                // Add new count to history
+                                itemToUpdate.recountHistory.push(newPhysicalQty);
+                                // Update final quantity
+                                itemToUpdate.finalPhysicalQty = newPhysicalQty;
+                                // Recalculate difference and status
                                 itemToUpdate.difference = newPhysicalQty - itemToUpdate.systemQty;
-                                itemToUpdate.reverified = true; // Set the new flag
-
                                 if (itemToUpdate.difference === 0) {
                                     itemToUpdate.status = 'Good';
                                 } else if (itemToUpdate.difference > 0) {
