@@ -215,10 +215,22 @@
                     'System Balance': item.systemQty,
                     'Physical Balance': item.physicalQty,
                     'Difference': item.difference > 0 ? `+${item.difference}` : item.difference,
-                    'Status': item.status
+                    'Status': item.status,
+                    'Re-verified': item.reverified ? 'Yes' : 'No' // Added new column
                 }));
                 
                 const worksheet = XLSX.utils.json_to_sheet(exportData);
+                
+                // Set column widths
+                const wscols = [
+                    {wch: 15}, // Item ID
+                    {wch: 15}, // System Balance
+                    {wch: 15}, // Physical Balance
+                    {wch: 15}, // Difference
+                    {wch: 15}, // Status
+                    {wch: 15}  // Re-verified
+                ];
+                worksheet['!cols'] = wscols;
 
                 const redStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFFFE2E2' } } };
                 const greenStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFD1FAE5' } } };
@@ -360,7 +372,14 @@
                             status = 'Extra';
                         }
                         const difference = physicalQty - systemQty;
-                        comparisonResults.push({ itemId, systemQty, physicalQty, difference, status });
+                        comparisonResults.push({ 
+                            itemId, 
+                            systemQty, 
+                            physicalQty, 
+                            difference, 
+                            status,
+                            reverified: false // Initialize the new flag
+                        });
                     });
 
                     // Display results and show re-verification section
@@ -423,6 +442,8 @@
                             if (itemToUpdate) {
                                 itemToUpdate.physicalQty = newPhysicalQty;
                                 itemToUpdate.difference = newPhysicalQty - itemToUpdate.systemQty;
+                                itemToUpdate.reverified = true; // Set the new flag
+
                                 if (itemToUpdate.difference === 0) {
                                     itemToUpdate.status = 'Good';
                                 } else if (itemToUpdate.difference > 0) {
