@@ -1,0 +1,21 @@
+# ## Environment Variables ##
+# Never commit secrets!
+.env
+.env.local
+
+# ## Dependencies ##
+# This folder can be huge and is installed automatically.
+node_modules
+
+# ## Vercel ##
+# Ignore Vercel's local build output.
+.vercel
+
+# ## Operating System Files ##
+# Ignore Mac and Windows system files.
+.DS_Store
+Thumbs.db
+
+# ## Log files ##
+# Ignore any log files.
+*.log

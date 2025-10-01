@@ -109,6 +109,7 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // Get references to HTML elements
@@ -126,74 +127,43 @@
             const reverifyBtn = document.getElementById('reverify-btn');
             const reverifySection = document.getElementById('reverify-section');
 
-            // Global variable to store comparison results for export and re-verification
             let comparisonResults = [];
             let systemDataMap = new Map();
             let physicalDataMap = new Map();
-
-            // Flag to track if results have been generated
             let resultsGenerated = false;
 
-            // --- NEW FUNCTIONALITY: BROWSER EXIT WARNING ---
             window.addEventListener('beforeunload', (event) => {
                 if (resultsGenerated) {
-                    // Modern browsers ignore the custom message and show a generic one
                     event.preventDefault();
-                    // Chrome requires this to be set for the prompt to show
                     event.returnValue = ''; 
-                    const message = "You have unsaved results. Are you sure you want to exit?";
-                    return message;
+                    return "You have unsaved results. Are you sure you want to exit?";
                 }
             });
 
-            /**
-             * Shows a message to the user in a styled box.
-             * @param {string} message The message to display.
-             * @param {string} type The type of message ('success', 'error', 'warning').
-             */
             const showMessage = (message, type) => {
                 let colorClass = '';
-                if (type === 'success') {
-                    colorClass = 'bg-green-100 text-green-700';
-                } else if (type === 'error') {
-                    colorClass = 'bg-red-100 text-red-700';
-                } else if (type === 'warning') {
-                    colorClass = 'bg-yellow-100 text-yellow-700';
-                }
+                if (type === 'success') colorClass = 'bg-green-100 text-green-700';
+                else if (type === 'error') colorClass = 'bg-red-100 text-red-700';
+                else if (type === 'warning') colorClass = 'bg-yellow-100 text-yellow-700';
+                else if (type === 'info') colorClass = 'bg-blue-100 text-blue-700'; // Added for info
                 messageBox.textContent = message;
                 messageBox.className = `block text-center mt-6 p-4 rounded-xl text-sm font-medium ${colorClass}`;
                 messageBox.classList.remove('hidden');
             };
 
-            /**
-             * Finds the key for a given column name from the Excel headers, with a fallback.
-             * @param {Array<object>} data The JSON data from the Excel file.
-             * @param {Array<string>} keywords An array of keywords to search for.
-             * @param {string} fallbackKey The generic column name to use as a fallback (e.g., 'A', 'B').
-             * @returns {string|null} The key of the found column or null.
-             */
             const findColumnKey = (data, keywords, fallbackKey) => {
                 if (data.length === 0) return null;
                 const headers = Object.keys(data[0]);
                 for (const header of headers) {
                     const normalizedHeader = header.toLowerCase().trim();
                     for (const keyword of keywords) {
-                        if (normalizedHeader.includes(keyword)) {
-                            return header;
-                        }
+                        if (normalizedHeader.includes(keyword)) return header;
                     }
                 }
-                if (headers.includes(fallbackKey)) {
-                    return fallbackKey;
-                }
+                if (headers.includes(fallbackKey)) return fallbackKey;
                 return null;
             };
 
-            /**
-             * Reads an Excel file and returns its data as a JSON array.
-             * @param {File} file The Excel file to read.
-             * @returns {Promise<Array<object>>} A promise that resolves with the sheet data.
-             */
             const readExcelFile = (file) => {
                 return new Promise((resolve, reject) => {
                     const reader = new FileReader();
@@ -203,10 +173,9 @@
                             const workbook = XLSX.read(data, { type: 'array' });
                             const sheetName = workbook.SheetNames[0];
                             const sheet = workbook.Sheets[sheetName];
-                            const jsonData = XLSX.utils.sheet_to_json(sheet);
-                            resolve(jsonData);
+                            resolve(XLSX.utils.sheet_to_json(sheet));
                         } catch (e) {
-                            reject(new Error('Failed to read the Excel file. Please ensure it is a valid .xlsx or .xls file.'));
+                            reject(new Error('Failed to read the Excel file.'));
                         }
                     };
                     reader.onerror = (error) => reject(error);
@@ -214,24 +183,17 @@
                 });
             };
 
-            /**
-             * Exports the comparison results to an Excel file, with color-coding and recount history.
-             * @param {Array<object>} dataToExport The data array to export.
-             * @param {string} filename The filename for the exported file.
-             */
             const exportToExcel = (dataToExport, filename) => {
                 if (dataToExport.length === 0) {
                     showMessage('No data to export.', 'warning');
                     return;
                 }
-
                 let maxRecounts = 0;
                 dataToExport.forEach(item => {
                     if (item.recountHistory && item.recountHistory.length > maxRecounts) {
                         maxRecounts = item.recountHistory.length;
                     }
                 });
-
                 const exportData = dataToExport.map(item => {
                     const row = {
                         'Item ID': item.itemId,
@@ -241,73 +203,27 @@
                         'Difference': item.difference > 0 ? `+${item.difference}` : item.difference,
                         'Status': item.status
                     };
-                    
-                    // Add dynamic recount columns
                     for (let i = 0; i < maxRecounts; i++) {
-                        const recountQty = item.recountHistory[i] || '';
-                        row[`Recount ${i + 1} Quantity`] = recountQty;
+                        row[`Recount ${i + 1} Quantity`] = item.recountHistory[i] || '';
                     }
                     return row;
                 });
-                
                 const worksheet = XLSX.utils.json_to_sheet(exportData);
-
-                // Set column widths dynamically
                 const wscols = [
-                    {wch: 15}, // Item ID
-                    {wch: 15}, // System Balance
-                    {wch: 25}, // Initial Physical Balance
-                    ...Array(maxRecounts).fill({wch: 20}), // Recount Qty columns
-                    {wch: 25}, // Final Physical Balance
-                    {wch: 15}, // Difference
-                    {wch: 15}  // Status
+                    {wch: 15}, {wch: 15}, {wch: 25}, {wch: 25}, {wch: 15}, {wch: 15},
+                    ...Array(maxRecounts).fill({wch: 20})
                 ];
                 worksheet['!cols'] = wscols;
-
-                const redStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFFFE2E2' } } };
-                const greenStyle = { fill: { patternType: 'solid', fgColor: { rgb: 'FFD1FAE5' } } };
-                
-                const statusColIndex = 4 + maxRecounts; // Status column position changes
-                const range = XLSX.utils.decode_range(worksheet['!ref']);
-                
-                for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-                    const statusCellAddress = XLSX.utils.encode_cell({ r: R, c: statusColIndex });
-                    const statusCell = worksheet[statusCellAddress];
-                    
-                    if (statusCell) {
-                        let styleToApply = null;
-                        if (statusCell.v === 'Extra' || statusCell.v === 'Shortage') {
-                            styleToApply = redStyle;
-                        } else if (statusCell.v === 'Good') {
-                            styleToApply = greenStyle;
-                        }
-                        
-                        if (styleToApply) {
-                            for (let C = range.s.c; C <= range.e.e; ++C) {
-                                const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-                                if (worksheet[cellAddress]) {
-                                    worksheet[cellAddress].s = styleToApply;
-                                }
-                            }
-                        }
-                    }
-                }
-
                 const workbook = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(workbook, worksheet, 'Comparison Results');
-                
                 XLSX.writeFile(workbook, filename, { cellStyles: true });
             };
 
-            // Main function to display the results table
             const displayResults = () => {
                 resultsTableBody.innerHTML = '';
                 let goodItemsCount = 0;
                 let tableRowsHtml = '';
-
-                // Sort results to ensure a consistent display order
                 comparisonResults.sort((a, b) => a.itemId.localeCompare(b.itemId));
-
                 comparisonResults.forEach(item => {
                     let statusClass = '';
                     if (item.status === 'Good') {
@@ -316,18 +232,8 @@
                     } else {
                         statusClass = 'extra';
                     }
-
-                    tableRowsHtml += `
-                        <tr class="${statusClass}">
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.itemId}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.systemQty}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.finalPhysicalQty}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.difference > 0 ? '+' : ''}${item.difference}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold">${item.status}</td>
-                        </tr>
-                    `;
+                    tableRowsHtml += `<tr class="${statusClass}"><td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${item.itemId}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.systemQty}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.finalPhysicalQty}</td><td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${item.difference > 0 ? '+' : ''}${item.difference}</td><td class="px-6 py-4 whitespace-nowrap text-sm font-semibold">${item.status}</td></tr>`;
                 });
-
                 resultsTableBody.innerHTML = tableRowsHtml;
                 summaryMessage.textContent = `(${goodItemsCount} / ${comparisonResults.length} item ID OK)`;
                 resultsContainer.classList.remove('hidden');
@@ -335,9 +241,7 @@
                 exportDiffBtn.classList.remove('hidden');
             };
 
-            // Event listener for the main compare button
             compareBtn.addEventListener('click', async () => {
-                // Reset UI
                 resultsContainer.classList.add('hidden');
                 messageBox.classList.add('hidden');
                 reverifySection.classList.add('hidden');
@@ -348,33 +252,26 @@
                 summaryMessage.textContent = '';
                 comparisonResults = [];
                 resultsGenerated = false;
-
                 const systemFile = systemFileInp.files[0];
                 const physicalFiles = physicalFileInp.files;
-
                 if (!systemFile || physicalFiles.length === 0) {
                     showMessage('Please select at least one System Balance file and one Physical Balance file.', 'warning');
                     loadingDiv.classList.add('hidden');
                     return;
                 }
-
                 try {
                     const systemData = await readExcelFile(systemFile);
                     const physicalDataPromises = Array.from(physicalFiles).map(file => readExcelFile(file));
                     const allPhysicalData = await Promise.all(physicalDataPromises);
-
                     const systemItemIdKey = findColumnKey(systemData, ['item', 'id', 'sku'], 'A');
                     const systemQuantityKey = findColumnKey(systemData, ['quantity', 'qty'], 'B');
                     const physicalItemIdKey = findColumnKey(allPhysicalData[0], ['item', 'id', 'sku'], 'A');
                     const physicalQuantityKey = findColumnKey(allPhysicalData[0], ['quantity', 'qty'], 'B');
-                    
                     if (!systemItemIdKey || !systemQuantityKey || !physicalItemIdKey || !physicalQuantityKey) {
                         showMessage('Could not find the necessary Item and Quantity columns in one or both files.', 'error');
                         loadingDiv.classList.add('hidden');
                         return;
                     }
-
-                    // Consolidate data
                     systemDataMap = new Map();
                     systemData.forEach(row => {
                         const itemId = row[systemItemIdKey];
@@ -383,7 +280,6 @@
                             systemDataMap.set(itemId, (systemDataMap.get(itemId) || 0) + quantity);
                         }
                     });
-
                     physicalDataMap = new Map();
                     allPhysicalData.forEach(fileData => {
                         fileData.forEach(row => {
@@ -394,40 +290,21 @@
                             }
                         });
                     });
-
-                    // --- START OF FIXED COMPARISON LOGIC ---
                     const allItemIds = new Set([...systemDataMap.keys(), ...physicalDataMap.keys()]);
-
                     comparisonResults = [];
                     allItemIds.forEach(itemId => {
                         const systemQty = systemDataMap.get(itemId) || 0;
                         const initialPhysicalQty = physicalDataMap.get(itemId) || 0;
                         const finalPhysicalQty = initialPhysicalQty;
-
                         let status = 'Good';
-                        if (systemQty > finalPhysicalQty) {
-                            status = 'Shortage';
-                        } else if (systemQty < finalPhysicalQty) {
-                            status = 'Extra';
-                        }
+                        if (systemQty > finalPhysicalQty) status = 'Shortage';
+                        else if (systemQty < finalPhysicalQty) status = 'Extra';
                         const difference = finalPhysicalQty - systemQty;
-                        comparisonResults.push({ 
-                            itemId, 
-                            systemQty, 
-                            initialPhysicalQty,
-                            finalPhysicalQty,
-                            difference, 
-                            status,
-                            recountHistory: []
-                        });
+                        comparisonResults.push({ itemId, systemQty, initialPhysicalQty, finalPhysicalQty, difference, status, recountHistory: [] });
                     });
-                    // --- END OF FIXED COMPARISON LOGIC ---
-
-                    // Display results and show re-verification section
                     if (comparisonResults.length > 0) {
                         displayResults();
-                        resultsGenerated = true; // Set the flag
-                        // Only show the re-verify section if there are differences
+                        resultsGenerated = true;
                         const hasDifferences = comparisonResults.some(item => item.status !== 'Good');
                         if (hasDifferences) {
                             reverifySection.classList.remove('hidden');
@@ -435,7 +312,6 @@
                     } else {
                         showMessage('No valid data found in the files.', 'warning');
                     }
-
                 } catch (error) {
                     console.error('Error:', error);
                     showMessage(`An error occurred: ${error.message}`, 'error');
@@ -444,65 +320,45 @@
                 }
             });
 
-            // Event listener for the new "Re-verify from File" button
             reverifyBtn.addEventListener('click', async () => {
                 const reverifyFile = reverifyFileInp.files[0];
                 if (!reverifyFile) {
                     showMessage('Please select a re-verification file to upload.', 'warning');
                     return;
                 }
-
                 loadingDiv.classList.remove('hidden');
                 messageBox.classList.add('hidden');
-
                 try {
                     const reverifyData = await readExcelFile(reverifyFile);
-
                     if (reverifyData.length === 0) {
                         showMessage('The re-verification file is empty or invalid.', 'warning');
                         loadingDiv.classList.add('hidden');
                         return;
                     }
-
-                    // Find the column keys for the re-verify file
                     const reverifyItemIdKey = findColumnKey(reverifyData, ['item', 'id', 'sku'], 'Item ID');
                     const reverifyQuantityKey = findColumnKey(reverifyData, ['quantity', 'qty'], 'Physical Balance');
-
                     if (!reverifyItemIdKey || !reverifyQuantityKey) {
                         showMessage('Could not find "Item ID" or "Physical Balance" columns in the re-verification file.', 'error');
                         loadingDiv.classList.add('hidden');
                         return;
                     }
-
-                    // Update our main results with the new data
                     reverifyData.forEach(row => {
                         const itemId = row[reverifyItemIdKey];
                         const newPhysicalQty = parseInt(row[reverifyQuantityKey] || 0, 10);
-                        
                         if (itemId !== undefined && !isNaN(newPhysicalQty)) {
                             const itemToUpdate = comparisonResults.find(item => item.itemId === itemId);
                             if (itemToUpdate) {
-                                // Add new count to history
                                 itemToUpdate.recountHistory.push(newPhysicalQty);
-                                // Update final quantity
                                 itemToUpdate.finalPhysicalQty = newPhysicalQty;
-                                // Recalculate difference and status
                                 itemToUpdate.difference = newPhysicalQty - itemToUpdate.systemQty;
-                                if (itemToUpdate.difference === 0) {
-                                    itemToUpdate.status = 'Good';
-                                } else if (itemToUpdate.difference > 0) {
-                                    itemToUpdate.status = 'Extra';
-                                } else {
-                                    itemToUpdate.status = 'Shortage';
-                                }
+                                if (itemToUpdate.difference === 0) itemToUpdate.status = 'Good';
+                                else if (itemToUpdate.difference > 0) itemToUpdate.status = 'Extra';
+                                else itemToUpdate.status = 'Shortage';
                             }
                         }
                     });
-
-                    // Redisplay the results with the new data
                     displayResults();
                     showMessage('Re-verification complete. Results have been updated.', 'success');
-
                 } catch (error) {
                     console.error('Re-verification error:', error);
                     showMessage(`An error occurred during re-verification: ${error.message}`, 'error');
@@ -511,29 +367,57 @@
                 }
             });
 
-            // Event listener for the "Export All Results" button
+            // --- MODIFIED EXPORT BUTTON ---
             exportBtn.addEventListener('click', () => {
+                // 1. Run your original export logic first.
                 const today = new Date();
-                const year = today.getFullYear();
-                const month = String(today.getMonth() + 1).padStart(2, '0');
-                const day = String(today.getDate()).padStart(2, '0');
-                const dateString = `${year}-${month}-${day}`;
+                const dateString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
                 const fileName = `Stock Take_AllResults_${dateString}.xlsx`;
                 exportToExcel(comparisonResults, fileName);
+                
+                // 2. NEW: Then, call our function to handle the SharePoint upload.
+                uploadArchiveToSharePoint();
             });
 
-            // Event listener for the "Export Differences Only" button
+            // --- NEW SharePoint UPLOAD FUNCTION ---
+            async function uploadArchiveToSharePoint() {
+                showMessage('Archiving results to SharePoint... Please wait.', 'info');
+                exportBtn.disabled = true;
+                exportDiffBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/archive', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ data: comparisonResults }),
+                    });
+
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.message);
+                    
+                    showMessage(result.message, 'success');
+
+                } catch (error) {
+                    console.error('SharePoint Upload Error:', error);
+                    showMessage(`SharePoint Upload Error: ${error.message}`, 'error');
+                } finally {
+                    exportBtn.disabled = false;
+                    exportDiffBtn.disabled = false;
+                }
+            }
+
             exportDiffBtn.addEventListener('click', () => {
                 const differencesOnly = comparisonResults.filter(item => item.status !== 'Good');
                 const today = new Date();
-                const year = today.getFullYear();
-                const month = String(today.getMonth() + 1).padStart(2, '0');
-                const day = String(today.getDate()).padStart(2, '0');
-                const dateString = `${year}-${month}-${day}`;
+                const dateString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
                 const fileName = `Stock Take_DifferencesOnly_${dateString}.xlsx`;
                 exportToExcel(differencesOnly, fileName);
             });
         });
     </script>
+</body>
+</html>
 </body>
 </html>
